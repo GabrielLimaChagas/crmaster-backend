@@ -1,0 +1,17 @@
+from enum import Enum
+
+
+class UserRole(str, Enum):
+    EMPLOYEE = 'EMPLOYEE'
+    COMPANY = 'COMPANY'
+    MANAGER = 'MANAGER'
+
+
+class PipelineStep(str, Enum):
+    PROPSECTING = 'PROPSECTING'
+    PREPARATION = 'PREPARATION'
+    APPROACH = 'APPROACH'
+    PRESENTATION = 'PRESENTATION'
+    HANDLING_OBJECTIONS = 'HANDLING_OBJECTIONS'
+    CLOSING = 'CLOSING'
+    FOLLOW_UP = 'FOLLOW_UP'

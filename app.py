@@ -11,9 +11,17 @@ def create_app():
     db_manager.init_app(app)
 
     email_service = GmailService()
-    email_service.init_app(app)
+    email_service.init_app(app)        
 
+    email_service.send_email(
+            to_email="ddnvoreznubgncgedn@kjkpc.net",
+            subject="Teste Email",
+            body="<h1>This is a test email from Flask app</h1>",
+            is_html=True
+        )
+    
     with app.app_context():
+        import models
         db_manager.db.create_all()
 
     return app
