@@ -1,14 +1,19 @@
 """Rotas para importação em lote de clientes utilizando o padrão Template Method."""
 
 import json
+from datetime import datetime
 from typing import Any
 from flask import Blueprint, jsonify, request
+from models.customer import Customer
+from models.company import Company
+from patterns.singleton.db_connection import DBConnection
 from patterns.template_method import (
     BaseCustomerImporter,
     CSVCustomerImporter,
     JSONCustomerImporter,
 )
 
+db = DBConnection().db
 customer_bp = Blueprint("customer_bp", __name__, url_prefix="/api/customers")
 
 
@@ -197,3 +202,162 @@ def import_json_endpoint():
         return jsonify(report), 200
     except Exception as exc:
         return jsonify({"success": False, "error": str(exc)}), 500
+
+
+def format_customer_for_list(customer: Customer) -> dict:
+    return {
+        "id": customer.id,
+        "name": customer.name,
+        "pipelinesCount": len(customer.pipelines) if customer.pipelines else 0,
+        "phone": customer.cel or "",
+        "cel": customer.cel or "",
+        "email": customer.email or "",
+        "notes": customer.notes or "",
+        "birth": customer.birth.strftime("%Y-%m-%d") if customer.birth else "",
+        "company_id": customer.company_id,
+    }
+
+
+def format_customer_for_detail(customer: Customer) -> dict:
+    return {
+        "id": customer.id,
+        "name": customer.name,
+        "phone": customer.cel or "",
+        "cel": customer.cel or "",
+        "email": customer.email or "",
+        "notes": customer.notes or "",
+        "birth": customer.birth.strftime("%Y-%m-%d") if customer.birth else "",
+        "address": customer.address or "",
+        "company_id": customer.company_id,
+        "pipelinesCount": len(customer.pipelines) if customer.pipelines else 0,
+    }
+
+
+def parse_date(date_val):
+    if not date_val:
+        return None
+    if isinstance(date_val, datetime):
+        return date_val
+    if isinstance(date_val, str):
+        date_str = date_val.strip()
+        if not date_str:
+            return None
+        for fmt in ("%Y-%m-%d", "%d/%m/%Y", "%Y-%m-%dT%H:%M:%S", "%Y-%m-%d %H:%M:%S"):
+            try:
+                return datetime.strptime(date_str[:19], fmt)
+            except ValueError:
+                continue
+    return None
+
+
+@customer_bp.route("", methods=["GET"])
+def list_customers():
+    """Retorna todos os clientes cadastrados com contagem de compras em andamento."""
+    try:
+        customers = Customer.query.order_by(Customer.id.desc()).all()
+        return jsonify([format_customer_for_list(c) for c in customers]), 200
+    except Exception as exc:
+        return jsonify({"success": False, "error": str(exc)}), 500
+
+
+@customer_bp.route("/<int:customer_id>", methods=["GET"])
+def get_customer(customer_id: int):
+    """Retorna detalhes de um cliente por ID."""
+    customer = Customer.query.get(customer_id)
+    if not customer:
+        return jsonify({"success": False, "error": "Cliente não encontrado."}), 404
+    return jsonify(format_customer_for_detail(customer)), 200
+
+
+@customer_bp.route("", methods=["POST"])
+def create_customer():
+    """Cria um novo cliente a partir dos dados do formulário."""
+    data = request.get_json(silent=True) or {}
+    name = data.get("name")
+    if not name or str(name).strip() == "":
+        return jsonify({"success": False, "error": "O campo 'name' é obrigatório."}), 400
+
+    company_id = data.get("company_id")
+    if not company_id:
+        first_company = Company.query.first()
+        company_id = first_company.id if first_company else 1
+
+    birth_dt = parse_date(data.get("birth"))
+    phone = data.get("phone") or data.get("cel") or None
+
+    try:
+        new_customer = Customer(
+            name=str(name).strip(),
+            notes=str(data.get("notes", "")).strip() if data.get("notes") else None,
+            cel=str(phone).strip() if phone else None,
+            email=str(data.get("email", "")).strip() if data.get("email") else None,
+            birth=birth_dt,
+            address=str(data.get("address", "")).strip() if data.get("address") else None,
+            company_id=company_id,
+        )
+        db.session.add(new_customer)
+        db.session.commit()
+        return jsonify({
+            "success": True,
+            "message": "Cliente cadastrado com sucesso.",
+            "customer": format_customer_for_detail(new_customer),
+        }), 201
+    except Exception as exc:
+        db.session.rollback()
+        return jsonify({"success": False, "error": str(exc)}), 500
+
+
+@customer_bp.route("/<int:customer_id>", methods=["PUT"])
+def update_customer(customer_id: int):
+    """Atualiza dados de um cliente existente."""
+    customer = Customer.query.get(customer_id)
+    if not customer:
+        return jsonify({"success": False, "error": "Cliente não encontrado."}), 404
+
+    data = request.get_json(silent=True) or {}
+    if "name" in data and str(data["name"]).strip():
+        customer.name = str(data["name"]).strip()
+    if "notes" in data:
+        customer.notes = str(data["notes"]).strip() if data["notes"] else None
+    if "phone" in data or "cel" in data:
+        phone = data.get("phone") or data.get("cel")
+        customer.cel = str(phone).strip() if phone else None
+    if "email" in data:
+        customer.email = str(data["email"]).strip() if data["email"] else None
+    if "birth" in data:
+        customer.birth = parse_date(data["birth"])
+    if "address" in data:
+        customer.address = str(data["address"]).strip() if data["address"] else None
+    if "company_id" in data and data["company_id"]:
+        try:
+            customer.company_id = int(data["company_id"])
+        except (ValueError, TypeError):
+            pass
+
+    try:
+        db.session.commit()
+        return jsonify({
+            "success": True,
+            "message": "Cliente atualizado com sucesso.",
+            "customer": format_customer_for_detail(customer),
+        }), 200
+    except Exception as exc:
+        db.session.rollback()
+        return jsonify({"success": False, "error": str(exc)}), 500
+
+
+@customer_bp.route("/<int:customer_id>", methods=["DELETE"])
+def delete_customer(customer_id: int):
+    """Exclui um cliente por ID."""
+    customer = Customer.query.get(customer_id)
+    if not customer:
+        return jsonify({"success": False, "error": "Cliente não encontrado."}), 404
+
+    try:
+        db.session.delete(customer)
+        db.session.commit()
+        return jsonify({"success": True, "message": "Cliente excluído com sucesso."}), 200
+    except Exception as exc:
+        db.session.rollback()
+        return jsonify({"success": False, "error": str(exc)}), 500
+
