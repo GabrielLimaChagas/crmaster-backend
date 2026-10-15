@@ -1,14 +1,20 @@
-"""Pacote contendo o padrão de projeto comportamental Template Method para importação de clientes.
+"""Pacote contendo o padrão de projeto comportamental Template Method para importação e exportação de dados.
 
-Exporta as classes BaseCustomerImporter, CSVCustomerImporter e JSONCustomerImporter.
+Exporta as classes abstratas e concretas para Clientes e Produtos.
 """
 
-from patterns.template_method.base_importer import BaseCustomerImporter
-from patterns.template_method.csv_importer import CSVCustomerImporter
-from patterns.template_method.json_importer import JSONCustomerImporter
+from .base_importer import BaseImporter
+from .customer_importer import CustomerImporter
+from .product_importer import ProductImporter
+from .base_exporter import BaseExporter
+from .customer_exporter import CustomerExporter
+from .product_exporter import ProductExporter
 
 __all__ = [
-    "BaseCustomerImporter",
-    "CSVCustomerImporter",
-    "JSONCustomerImporter",
+    "BaseImporter",
+    "CustomerImporter",
+    "ProductImporter",
+    "BaseExporter",
+    "CustomerExporter",
+    "ProductExporter",
 ]

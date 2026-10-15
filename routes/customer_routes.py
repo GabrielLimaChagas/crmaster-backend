@@ -3,38 +3,32 @@
 import json
 from datetime import datetime
 from typing import Any
-from flask import Blueprint, jsonify, request
+from flask import Blueprint, jsonify, request, Response
 from models.customer import Customer
 from models.company import Company
 from patterns.singleton.db_connection import DBConnection
-from patterns.template_method import (
-    BaseCustomerImporter,
-    CSVCustomerImporter,
-    JSONCustomerImporter,
-)
+from patterns.template_method import CustomerImporter, CustomerExporter
 
 db = DBConnection().db
 customer_bp = Blueprint("customer_bp", __name__, url_prefix="/api/customers")
 
 
 def run_customer_importer(
-    importer: BaseCustomerImporter,
+    importer: CustomerImporter,
     content: str | bytes,
+    file_format: str = "json",
 ) -> dict[str, Any]:
-    """Função utilitária polimórfica que executa qualquer importador baseado em BaseCustomerImporter.
-
-    Demonstra o princípio de substituição de Liskov e o polimorfismo do Template Method:
-    o chamador depende apenas da interface abstrata `BaseCustomerImporter`, enquanto a
-    execução real do passo primitivo `extract_data` varia conforme a classe concreta.
+    """Função utilitária que executa o importador de clientes através do Template Method.
 
     Args:
-        importer: Instância concreta de qualquer subclasse de BaseCustomerImporter.
+        importer: Instância de CustomerImporter configurada.
         content: Conteúdo do arquivo a ser processado.
+        file_format: 'csv' ou 'json'.
 
     Returns:
         Relatório consolidado de importação.
     """
-    return importer.import_customers(content)
+    return importer.import_data(content, file_format)
 
 
 @customer_bp.route("/import", methods=["POST"])
@@ -42,7 +36,7 @@ def import_customers_endpoint():
     """Endpoint unificado para importação em lote via upload de arquivo ou payload JSON.
 
     Detecta automaticamente o formato (CSV ou JSON) pelo nome do arquivo,
-    Content-Type ou parâmetro `format`, instanciando a subclasse polimórfica correspondente.
+    Content-Type ou parâmetro `format`, instanciando CustomerImporter.
 
     Exemplos de uso:
         1. Multipart Form:
@@ -114,21 +108,15 @@ def import_customers_endpoint():
     if not file_bytes:
         return jsonify({"success": False, "error": "Conteúdo do arquivo vazio ou não informado."}), 400
 
-    # Seleção polimórfica do importador com base no formato
-    importer: BaseCustomerImporter
-    if file_format == "csv":
-        importer = CSVCustomerImporter(company_id=company_id)
-    elif file_format == "json":
-        importer = JSONCustomerImporter(company_id=company_id)
-    else:
+    if file_format not in ("csv", "json"):
         return jsonify({
             "success": False,
             "error": f"Formato '{file_format}' não suportado. Formatos aceitos: 'csv' e 'json'.",
         }), 400
 
     try:
-        # Invocação polimórfica através da função utilitária / Template Method
-        report = run_customer_importer(importer, file_bytes)
+        importer = CustomerImporter(company_id=company_id)
+        report = importer.import_data(file_bytes, file_format)
         return jsonify(report), 200
     except ValueError as ve:
         return jsonify({"success": False, "error": str(ve)}), 400
@@ -159,9 +147,9 @@ def import_csv_endpoint():
     if not content:
         return jsonify({"success": False, "error": "Nenhum dado CSV enviado."}), 400
 
-    importer = CSVCustomerImporter(company_id=company_id)
     try:
-        report = run_customer_importer(importer, content)
+        importer = CustomerImporter(company_id=company_id)
+        report = importer.import_data(content, "csv")
         return jsonify(report), 200
     except Exception as exc:
         return jsonify({"success": False, "error": str(exc)}), 500
@@ -196,12 +184,43 @@ def import_json_endpoint():
     if not content:
         return jsonify({"success": False, "error": "Nenhum dado JSON enviado."}), 400
 
-    importer = JSONCustomerImporter(company_id=company_id)
     try:
-        report = run_customer_importer(importer, content)
+        importer = CustomerImporter(company_id=company_id)
+        report = importer.import_data(content, "json")
         return jsonify(report), 200
     except Exception as exc:
         return jsonify({"success": False, "error": str(exc)}), 500
+
+
+@customer_bp.route("/export", methods=["GET"])
+def export_customers_endpoint():
+    """Endpoint para exportação de clientes nos formatos CSV ou JSON."""
+    file_format = request.args.get("format", "csv")
+    company_id_raw = request.args.get("company_id")
+    company_id: int | None = None
+
+    if company_id_raw:
+        try:
+            company_id = int(company_id_raw)
+        except ValueError:
+            return jsonify({"success": False, "error": "'company_id' deve ser um número inteiro."}), 400
+
+    try:
+        exporter = CustomerExporter(company_id=company_id)
+        content, mimetype, filename = exporter.export_data(file_format)
+        return Response(
+            content,
+            mimetype=mimetype,
+            headers={
+                "Content-Disposition": f'attachment; filename="{filename}"',
+                "Content-Type": mimetype,
+            },
+        )
+    except ValueError as ve:
+        return jsonify({"success": False, "error": str(ve)}), 400
+    except Exception as exc:
+        return jsonify({"success": False, "error": f"Erro na exportação de clientes: {str(exc)}"}), 500
+
 
 
 def format_customer_for_list(customer: Customer) -> dict:

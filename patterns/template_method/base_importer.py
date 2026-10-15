@@ -1,194 +1,202 @@
-"""Módulo base para o padrão Template Method de importação de clientes.
+"""Módulo base para o padrão Template Method genérico de importação em lote.
 
-Define a classe abstrata BaseCustomerImporter com o esqueleto do algoritmo
-de extração, validação, persistência com controle transacional e hook pós-importação.
+Define a classe abstrata BaseImporter(ABC, Generic[T]) com o esqueleto invariante
+do algoritmo e extração agnóstica de arquivos CSV e JSON.
 """
 
 from abc import ABC, abstractmethod
-from datetime import date, datetime
-import os
-from typing import Any
+import csv
+import io
+import json
+from typing import Any, Generic, TypeVar
 
-from models.customer import Customer
 from patterns.singleton.db_connection import DBConnection
 
+T = TypeVar("T")
 
-class BaseCustomerImporter(ABC):
-    """Classe base abstrata (Template Method) para importação em lote de clientes.
 
-    Define os passos invariantes do ciclo de vida de importação e delega a extração
-    dos dados brutos às subclasses especializadas (CSV, JSON, etc.).
+class BaseImporter(ABC, Generic[T]):
+    """Classe base abstrata genérica (Template Method) para importação em lote.
+
+    Define os passos invariantes do ciclo de vida da importação e orquestra:
+    1. Extração agnóstica de dados (_extract_data para CSV e JSON).
+    2. Processamento e validação de domínio específica da entidade (process_records).
+    3. Persistência atômica no banco de dados via SQLAlchemy (_save_to_database).
+    4. Hook pós-importação (post_import_hook).
     """
 
-    def __init__(
-        self,
-        company_id: int,
-        file_path_or_content: str | bytes | None = None,
-    ) -> None:
-        """Inicializa o importador de clientes.
-
-        Args:
-            company_id: Identificador da empresa à qual os clientes serão associados.
-            file_path_or_content: Opcional, conteúdo bruto ou caminho do arquivo no disco.
-        """
-        self.company_id: int = company_id
-        self.file_path_or_content: str | bytes | None = file_path_or_content
+    def __init__(self) -> None:
+        """Inicializa o importador com a conexão ao banco e lista de erros vazia."""
         self.errors: list[dict[str, Any]] = []
         self.db = DBConnection().db
 
-    def import_customers(self, file_data: str | bytes | None = None) -> dict[str, Any]:
+    def import_data(self, content: str | bytes, file_format: str) -> dict[str, Any]:
         """Template Method: Define a estrutura invariante do algoritmo de importação.
 
         Passos executados:
-            1. raw_records = self.extract_data(file_data) (Passo abstrato/hook)
-            2. validated_customers = self.process_records(raw_records) (Passo concreto reutilizável)
-            3. saved_count = self.save_to_database(validated_customers) (Passo concreto com transação)
-            4. self.post_import_hook(saved_count) (Hook opcional, default vazio)
-            5. Retorna o relatório final consolidado.
+            1. raw_records = self._extract_data(content, file_format)
+            2. validated_entities = self.process_records(raw_records)
+            3. saved_count = self._save_to_database(validated_entities)
+            4. self.post_import_hook(saved_count)
+            5. Retorna relatório consolidado.
 
         Args:
-            file_data: Conteúdo do arquivo em string ou bytes (opcional se fornecido no construtor).
+            content: Conteúdo do arquivo ou payload em string ou bytes.
+            file_format: Formato dos dados ('csv' ou 'json').
 
         Returns:
-            dict contendo status de sucesso, contagem de registros e lista de erros.
+            dict contendo status, total lido, total importado, falhas e lista de erros.
         """
-        data_to_process = file_data if file_data is not None else self.file_path_or_content
-        if data_to_process is None:
-            raise ValueError("Nenhum dado ou caminho de arquivo foi fornecido para importação.")
-
-        # Se for um caminho de arquivo em disco, lê o conteúdo
-        if isinstance(data_to_process, str) and os.path.isfile(data_to_process):
-            with open(data_to_process, "rb") as f:
-                data_to_process = f.read()
+        if content is None:
+            raise ValueError("O conteúdo para importação não pode ser nulo.")
 
         # Reinicia a lista de erros para a execução atual
         self.errors = []
 
-        # 1. Extração dos registros brutos (Passo primitivo / abstrato delegado à subclasse)
-        raw_records = self.extract_data(data_to_process)
+        # 1. Extração dos registros brutos conforme o formato
+        raw_records = self._extract_data(content, file_format)
 
-        # 2. Processamento, sanitização e validação dos registros (Passo concreto)
-        validated_customers = self.process_records(raw_records)
+        # 2. Processamento, validação e instanciação de entidades (Passo primitivo abstrato)
+        validated_entities = self.process_records(raw_records)
 
-        # 3. Persistência transacional no banco de dados via SQLAlchemy (Passo concreto)
-        saved_count = self.save_to_database(validated_customers)
+        # 3. Persistência atômica no banco com controle transacional
+        saved_count = self._save_to_database(validated_entities)
 
-        # 4. Hook pós-importação opcional (pode ser sobrescrito por subclasses)
+        # 4. Hook pós-importação opcional
         self.post_import_hook(saved_count)
 
-        # 5. Consolidação e retorno do relatório de importação
+        # 5. Consolidação e retorno do relatório
         return {
             "success": True,
-            "company_id": self.company_id,
             "total_read": len(raw_records),
             "imported_count": saved_count,
             "failed_count": len(self.errors),
             "errors": self.errors,
         }
 
-    @abstractmethod
-    def extract_data(self, file_data: str | bytes) -> list[dict[str, Any]]:
-        """Passo primitivo abstrato: extrai os dados brutos do arquivo.
-
-        Deve ser implementado pelas subclasses para interpretar formatos específicos
-        como CSV, JSON, XML, etc.
+    def _extract_data(self, content: str | bytes, file_format: str) -> list[dict[str, Any]]:
+        """Extrai registros brutos de formatos suportados (CSV ou JSON).
 
         Args:
-            file_data: Conteúdo bruto do arquivo em formato string ou bytes.
+            content: Dados em texto ou bytes.
+            file_format: 'csv' ou 'json'.
 
         Returns:
-            Lista de dicionários contendo os registros extraídos.
+            Lista de dicionários brutos com chaves em minúsculas e sem espaços.
         """
-        raise NotImplementedError
+        fmt = (file_format or "").lower().strip().lstrip(".")
 
-    def process_records(self, raw_records: list[dict[str, Any]]) -> list[Customer]:
-        """Passo concreto reutilizável: valida e converte registros brutos em entidades Customer.
+        if fmt in ("csv", "text/csv"):
+            return self._extract_csv(content)
+        elif fmt in ("json", "application/json"):
+            return self._extract_json(content)
+        else:
+            raise ValueError(
+                f"Formato '{file_format}' não suportado. Utilize 'csv' ou 'json'."
+            )
 
-        Realiza parsing de datas em múltiplos formatos comuns, valida campos obrigatórios,
-        limpa caracteres e descarta linhas inválidas acumulando os erros correspondentes.
+    def _extract_csv(self, content: str | bytes) -> list[dict[str, Any]]:
+        """Extrai registros a partir de conteúdo CSV delimitado por vírgula ou ponto-e-vírgula."""
+        decoded = self._decode_bytes(content).strip()
+        if not decoded:
+            return []
+
+        # Detecta dinamicamente delimitador ';' ou ','
+        first_line = decoded.splitlines()[0]
+        delimiter = ";" if first_line.count(";") > first_line.count(",") else ","
+
+        stream = io.StringIO(decoded)
+        reader = csv.DictReader(stream, delimiter=delimiter)
+
+        records: list[dict[str, Any]] = []
+        for row in reader:
+            if not row or all(v is None or not str(v).strip() for v in row.values()):
+                continue
+
+            normalized_row = {
+                str(k).strip().lower(): v for k, v in row.items() if k is not None
+            }
+            records.append(normalized_row)
+
+        return records
+
+    def _extract_json(self, content: str | bytes) -> list[dict[str, Any]]:
+        """Extrai registros a partir de arrays diretos ou envelopes JSON."""
+        decoded = self._decode_bytes(content).strip()
+        if not decoded:
+            return []
+
+        try:
+            parsed = json.loads(decoded)
+        except json.JSONDecodeError as exc:
+            raise ValueError(f"Conteúdo JSON inválido: {str(exc)}") from exc
+
+        # Suporta envelopes comuns: {"data": [...]}, {"items": [...]}, {"customers": [...]}, etc.
+        if isinstance(parsed, dict):
+            for key in ("data", "items", "records", "customers", "products", "clientes", "produtos"):
+                if key in parsed and isinstance(parsed[key], list):
+                    parsed = parsed[key]
+                    break
+            else:
+                # Caso seja um único objeto de entidade, encapsula em lista
+                parsed = [parsed]
+
+        if not isinstance(parsed, list):
+            raise ValueError("O conteúdo JSON deve representar uma lista de objetos ou um envelope válido.")
+
+        records: list[dict[str, Any]] = []
+        for item in parsed:
+            if isinstance(item, dict):
+                normalized_item = {
+                    str(k).strip().lower(): v for k, v in item.items() if k is not None
+                }
+                records.append(normalized_item)
+            else:
+                records.append(item)
+
+        return records
+
+    @staticmethod
+    def _decode_bytes(content: str | bytes) -> str:
+        """Decodifica bytes para string com suporte a UTF-8 (com ou sem BOM) e Latin-1."""
+        if isinstance(content, str):
+            return content
+        try:
+            return content.decode("utf-8-sig")
+        except UnicodeDecodeError:
+            return content.decode("latin-1")
+
+    @abstractmethod
+    def process_records(self, raw_records: list[dict[str, Any]]) -> list[T]:
+        """Passo primitivo abstrato: valida dados brutos e instancia entidades de domínio T.
+
+        Deve ser implementado pelas subclasses de entidade para aplicar as regras
+        de validação e mapeamento específicas do modelo.
 
         Args:
             raw_records: Lista de dicionários extraídos do arquivo.
 
         Returns:
-            Lista de instâncias validadas de Customer prontas para persistência.
+            Lista de instâncias da entidade T prontas para o banco.
         """
-        validated_customers: list[Customer] = []
+        raise NotImplementedError
 
-        for index, record in enumerate(raw_records, start=1):
-            if not isinstance(record, dict):
-                self.errors.append({
-                    "row": index,
-                    "error": "Registro inválido: formato de objeto/dicionário esperado.",
-                    "data": record,
-                })
-                continue
-
-            # Validação do campo obrigatório: name
-            raw_name = record.get("name")
-            name = str(raw_name).strip() if raw_name is not None else ""
-            if not name:
-                self.errors.append({
-                    "row": index,
-                    "error": "Campo obrigatório 'name' ausente ou vazio.",
-                    "data": record,
-                })
-                continue
-
-            # Parsing e validação da data de nascimento (birth)
-            raw_birth = record.get("birth")
-            parsed_birth: datetime | None = None
-
-            if raw_birth is not None and str(raw_birth).strip():
-                try:
-                    parsed_birth = self._parse_birth_date(raw_birth)
-                except ValueError as ve:
-                    self.errors.append({
-                        "row": index,
-                        "error": f"Data de nascimento inválida ('{raw_birth}'): {str(ve)}",
-                        "data": record,
-                    })
-                    continue
-
-            # Sanitização e limitação de tamanho dos campos opcionais
-            notes = self._sanitize_string(record.get("notes"), max_length=255)
-            cel = self._sanitize_string(record.get("cel"), max_length=64)
-            email = self._sanitize_string(record.get("email"), max_length=64)
-            address = self._sanitize_string(record.get("address"), max_length=64)
-
-            # Instanciação do modelo Customer vinculado à empresa
-            customer = Customer(
-                name=name[:255],
-                notes=notes,
-                cel=cel,
-                email=email,
-                birth=parsed_birth,
-                address=address,
-                company_id=self.company_id,
-            )
-            validated_customers.append(customer)
-
-        return validated_customers
-
-    def save_to_database(self, validated_customers: list[Customer]) -> int:
-        """Passo concreto: persiste os clientes validados no banco via SQLAlchemy.
-
-        Executa atomicamente `db.session.add_all()` e `db.session.commit()`.
-        Em caso de falha, garante o rollback da transação e registra o erro.
+    def _save_to_database(self, validated_entities: list[T]) -> int:
+        """Persiste entidades validadas atomicamente via SQLAlchemy com rollback em falha.
 
         Args:
-            validated_customers: Lista de entidades Customer a serem persistidas.
+            validated_entities: Lista de entidades a serem persistidas.
 
         Returns:
-            Quantidade de registros persistidos com sucesso.
+            Quantidade total de registros persistidos com sucesso.
         """
-        if not validated_customers:
+        if not validated_entities:
             return 0
 
         try:
-            self.db.session.add_all(validated_customers)
+            self.db.session.add_all(validated_entities)
             self.db.session.commit()
-            return len(validated_customers)
+            return len(validated_entities)
         except Exception as exc:
             self.db.session.rollback()
             self.errors.append({
@@ -199,58 +207,5 @@ class BaseCustomerImporter(ABC):
             raise
 
     def post_import_hook(self, saved_count: int) -> None:
-        """Hook opcional executado após a persistência bem-sucedida.
-
-        Pode ser sobrescrito por subclasses para envio de e-mails, emissão de eventos,
-        auditoria ou logs operacionais. Padrão vazio.
-
-        Args:
-            saved_count: Total de registros salvos no banco.
-        """
+        """Hook opcional executado após a persistência bem-sucedida. Padrão vazio."""
         pass
-
-    @staticmethod
-    def _sanitize_string(value: Any, max_length: int) -> str | None:
-        """Auxiliar para limpar strings, remover espaços e truncar se necessário."""
-        if value is None:
-            return None
-        text = str(value).strip()
-        if not text:
-            return None
-        return text[:max_length]
-
-    @staticmethod
-    def _parse_birth_date(value: Any) -> datetime:
-        """Converte diferentes formatos de data e strings em objeto datetime."""
-        if isinstance(value, datetime):
-            return value
-        if isinstance(value, date):
-            return datetime.combine(value, datetime.min.time())
-
-        text = str(value).strip()
-        if not text:
-            raise ValueError("Valor de data vazio.")
-
-        # Tenta formatos ISO e convencionais
-        try:
-            return datetime.fromisoformat(text)
-        except ValueError:
-            pass
-
-        date_formats = [
-            "%Y-%m-%d",
-            "%d/%m/%Y",
-            "%Y/%m/%d",
-            "%d-%m-%Y",
-            "%Y-%m-%d %H:%M:%S",
-            "%d/%m/%Y %H:%M:%S",
-            "%Y/%m/%d %H:%M:%S",
-        ]
-
-        for fmt in date_formats:
-            try:
-                return datetime.strptime(text, fmt)
-            except ValueError:
-                continue
-
-        raise ValueError(f"Formato não reconhecido para '{text}'. Formatos aceitos: ISO, YYYY-MM-DD, DD/MM/YYYY, etc.")

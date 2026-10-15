@@ -1,8 +1,10 @@
 """Rotas da API para gerenciamento de Produtos."""
 
-from flask import Blueprint, jsonify, request
+import json
+from flask import Blueprint, jsonify, request, Response
 from models.product import Product
 from patterns.singleton.db_connection import DBConnection
+from patterns.template_method import ProductImporter, ProductExporter
 
 db = DBConnection().db
 product_bp = Blueprint("product_bp", __name__, url_prefix="/api/products")
@@ -127,3 +129,98 @@ def delete_product(product_id: int):
     except Exception as exc:
         db.session.rollback()
         return jsonify({"success": False, "error": str(exc)}), 500
+
+
+@product_bp.route("/import", methods=["POST"])
+def import_products_endpoint():
+    """Endpoint unificado para importação em lote de produtos via CSV ou JSON.
+
+    Aceita upload de arquivo multipart/form-data ('file') ou payload JSON direto
+    ('data' e 'format').
+    """
+    file_bytes: bytes | None = None
+    file_format: str | None = None
+
+    # Caso 1: Upload multipart
+    if "file" in request.files:
+        uploaded_file = request.files["file"]
+        filename = uploaded_file.filename or ""
+        file_bytes = uploaded_file.read()
+
+        if filename.lower().endswith(".csv"):
+            file_format = "csv"
+        elif filename.lower().endswith(".json"):
+            file_format = "json"
+        else:
+            file_format = request.form.get("format", "").lower()
+
+    # Caso 2: Payload JSON
+    elif request.is_json:
+        payload = request.get_json(silent=True) or {}
+        file_format = payload.get("format", "json").lower()
+        raw_data = payload.get("data") or payload.get("content")
+
+        if raw_data is None:
+            # Caso o payload seja diretamente uma lista [ {...}, {...} ]
+            if isinstance(payload, list):
+                raw_data = payload
+            else:
+                return jsonify({
+                    "success": False,
+                    "error": "Envie uma lista de produtos ou um objeto contendo 'data'.",
+                }), 400
+
+        if isinstance(raw_data, (list, dict)):
+            file_bytes = json.dumps(raw_data).encode("utf-8")
+        elif isinstance(raw_data, str):
+            file_bytes = raw_data.encode("utf-8")
+
+    else:
+        return jsonify({
+            "success": False,
+            "error": "Envie um arquivo via multipart ('file') ou um JSON com 'data' de produtos.",
+        }), 400
+
+    if not file_bytes:
+        return jsonify({"success": False, "error": "Conteúdo do arquivo vazio ou não informado."}), 400
+
+    if file_format not in ("csv", "json"):
+        return jsonify({
+            "success": False,
+            "error": f"Formato '{file_format}' não suportado. Formatos aceitos: 'csv' e 'json'.",
+        }), 400
+
+    try:
+        importer = ProductImporter()
+        report = importer.import_data(file_bytes, file_format)
+        return jsonify(report), 200
+    except ValueError as ve:
+        return jsonify({"success": False, "error": str(ve)}), 400
+    except Exception as exc:
+        return jsonify({
+            "success": False,
+            "error": f"Erro interno ao processar a importação: {str(exc)}",
+        }), 500
+
+
+@product_bp.route("/export", methods=["GET"])
+def export_products_endpoint():
+    """Endpoint para exportação de produtos nos formatos CSV ou JSON."""
+    file_format = request.args.get("format", "csv")
+    try:
+        exporter = ProductExporter()
+        content, mimetype, filename = exporter.export_data(file_format)
+        return Response(
+            content,
+            mimetype=mimetype,
+            headers={
+                "Content-Disposition": f'attachment; filename="{filename}"',
+                "Content-Type": mimetype,
+            },
+        )
+    except ValueError as ve:
+        return jsonify({"success": False, "error": str(ve)}), 400
+    except Exception as exc:
+        return jsonify({"success": False, "error": f"Erro na exportação de produtos: {str(exc)}"}), 500
+
+
