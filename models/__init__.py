@@ -7,6 +7,7 @@ from .plugin import Plugin
 from .pipeline import Pipeline
 from .sale_product import SaleProduct
 from .company_plugin import CompanyPlugin
+from .notification import Notification
 
 __all__ = [
     'UserRole',
@@ -18,5 +19,6 @@ __all__ = [
     'Plugin',
     'Pipeline',
     'SaleProduct',
-    'CompanyPlugin'
+    'CompanyPlugin',
+    'Notification'
 ]

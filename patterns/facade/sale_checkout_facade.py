@@ -1,10 +1,10 @@
 """Fachada de checkout e fechamento de vendas (GoF Facade Pattern).
 
 Unifica e simplifica a coordenação entre transição de pipeline, persistência
-transacional no banco de dados e disparo de notificações por e-mail.
+transacional no banco de dados e disparo auditado de notificações via MessageNotificationFacade.
 """
 
-from patterns.facade.email_service import EmailService
+from patterns.facade.message_notification_facade import MessageNotificationFacade
 from patterns.facade.pipeline_service import PipelineService
 from patterns.singleton.db_connection import DBConnection
 
@@ -13,21 +13,23 @@ class SaleCheckoutFacade:
     """Fachada de alto nível para fechamento de vendas e conclusão de oportunidades.
 
     Oculta a complexidade de orquestrar a consulta de pipeline, transição de etapa,
-    persistência transacional com rollback e notificações por e-mail para cliente e vendedor.
+    persistência transacional com rollback e delegação de notificações para a MessageNotificationFacade.
     """
 
-    def __init__(self) -> None:
-        """Inicializa a fachada com a conexão do banco de dados."""
+    def __init__(self, notification_facade: MessageNotificationFacade | None = None) -> None:
+        """Inicializa a fachada com a conexão do banco de dados e a fachada de notificações."""
         self.db = DBConnection().db
+        self.notification_facade = notification_facade or MessageNotificationFacade()
 
     def close_sale(self, pipeline_id: int, closing_note: str | None = None) -> bool:
         """Executa o fechamento completo da venda.
 
         Etapas orquestradas:
             1. Consulta e validação da existência da pipeline.
-            2. Transição de etapa para CLOSING, anexação da nota e cálculo do total.
+            2. Transição de etapa para CLOSING, anexação da nota e cálculo do total via PipelineService.
             3. Commit atômico no banco com rollback em caso de falha.
-            4. Disparo de e-mails para cliente e vendedor.
+            4. Recuperação do company_id associado.
+            5. Disparo de notificações estruturadas via MessageNotificationFacade.
 
         Args:
             pipeline_id: ID da oportunidade a ser fechada.
@@ -57,20 +59,19 @@ class SaleCheckoutFacade:
             self.db.session.rollback()
             raise exc
 
-        # 4. Disparo de notificações estruturadas através do subsistema EmailService
-        if customer and customer.email:
-            EmailService.notify_customer_sale_closed(
-                customer_email=customer.email,
-                customer_name=customer.name,
-                total_amount=total_amount,
-            )
+        # 4. Recuperação do company_id
+        company_id = (
+            getattr(customer, "company_id", None)
+            or getattr(employee, "company_id", None)
+            or 1
+        )
 
-        if employee and employee.email:
-            EmailService.notify_employee_deal_won(
-                employee_email=employee.email,
-                employee_name=employee.name,
-                customer_name=customer.name if customer else "Cliente",
-                total_amount=total_amount,
-            )
+        # 5. Invocação exclusiva da Fachada de Notificações (sem acesso direto a EmailService/GmailService)
+        self.notification_facade.send_sale_won_notifications(
+            company_id=company_id,
+            customer=customer,
+            employee=employee,
+            total_amount=total_amount,
+        )
 
         return True

@@ -1,13 +1,13 @@
 """Fachada de Onboarding e Cadastro de Novas Empresas (GoF Facade Pattern).
 
 Orquestra atomicamente a validação, o provisionamento de Empresa, Plugins e Usuário
-Administrador, a persistência transacional e o disparo do e-mail de boas-vindas.
+Administrador, a persistência transacional e o disparo auditado de e-mail via MessageNotificationFacade.
 """
 
 from typing import Any
 from models.user import User
 from patterns.facade.company_provisioning_service import CompanyProvisioningService
-from patterns.facade.email_service import EmailService
+from patterns.facade.message_notification_facade import MessageNotificationFacade
 from patterns.singleton.db_connection import DBConnection
 
 
@@ -16,13 +16,17 @@ class CompanyOnboardingFacade:
 
     Simplifica para os controladores e clientes a complexidade de cadastrar a empresa,
     associar plugins selecionados, criar o usuário administrador com perfil COMPANY,
-    garantir a atomicidade no banco de dados e notificar o usuário com suas credenciais.
+    garantir a atomicidade no banco de dados e notificar o usuário através da MessageNotificationFacade.
     """
 
-    def __init__(self) -> None:
-        """Inicializa a fachada com a conexão do banco e o serviço de provisionamento."""
+    def __init__(
+        self,
+        notification_facade: MessageNotificationFacade | None = None,
+    ) -> None:
+        """Inicializa a fachada com a conexão do banco, provisionamento e fachada de notificações."""
         self.db = DBConnection().db
         self.provisioning_service = CompanyProvisioningService(self.db.session)
+        self.notification_facade = notification_facade or MessageNotificationFacade()
 
     def register_company(
         self,
@@ -89,8 +93,9 @@ class CompanyOnboardingFacade:
             self.db.session.rollback()
             raise exc
 
-        # 4. Disparo do e-mail de boas-vindas com credenciais através do EmailService
-        EmailService.send_company_welcome_email(
+        # 4. Invocação exclusiva da Fachada de Notificações
+        self.notification_facade.send_welcome_company_notification(
+            company_id=company.id,
             user_email=clean_email,
             user_name=clean_user_name,
             company_name=clean_company_name,
