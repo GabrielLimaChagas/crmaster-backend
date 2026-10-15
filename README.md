@@ -108,4 +108,16 @@ CREATE TABLE company_plugin (
         ON DELETE CASCADE ON UPDATE CASCADE
 ) ENGINE=InnoDB;
 
+-- 9. Tabela notifications
+CREATE TABLE IF NOT EXISTS notifications (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    company_id INT NOT NULL,
+    recipient VARCHAR(255) NOT NULL,
+    title VARCHAR(255),
+    content TEXT NOT NULL,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    CONSTRAINT fk_notifications_company
+        FOREIGN KEY (company_id) REFERENCES companies(id)
+        ON DELETE CASCADE ON UPDATE CASCADE
+) ENGINE=InnoDB;
 ```
