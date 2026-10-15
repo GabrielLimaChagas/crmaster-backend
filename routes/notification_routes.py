@@ -2,11 +2,13 @@
 
 from flask import Blueprint, jsonify, request
 from models.notification import Notification, db
+from utils.decorators import require_plugin
 
 notification_bp = Blueprint("notification_bp", __name__, url_prefix="/api/notifications")
 
 
 @notification_bp.route("", methods=["GET"])
+@require_plugin("notifications_plugin")
 def list_notifications():
     """Lista as notificações registradas na base de dados para auditoria.
 
@@ -16,6 +18,7 @@ def list_notifications():
 
     Retorno:
         200: Lista de notificações em formato JSON
+        403: Módulo não contratado para esta empresa
         500: Erro interno do servidor
     """
     try:
@@ -36,6 +39,7 @@ def list_notifications():
 
 
 @notification_bp.route("/<int:notification_id>", methods=["DELETE"])
+@require_plugin("notifications_plugin")
 def delete_notification(notification_id):
     """Exclui uma notificação específica pelo ID."""
     try:
@@ -53,6 +57,7 @@ def delete_notification(notification_id):
 
 @notification_bp.route("", methods=["DELETE"])
 @notification_bp.route("/clear", methods=["DELETE"])
+@require_plugin("notifications_plugin")
 def clear_company_notifications():
     """Limpa todas as notificações de uma determinada empresa."""
     try:

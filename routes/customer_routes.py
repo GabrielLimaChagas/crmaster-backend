@@ -8,6 +8,7 @@ from models.customer import Customer
 from models.company import Company
 from patterns.singleton.db_connection import DBConnection
 from patterns.template_method import CustomerImporter, CustomerExporter
+from utils.decorators import require_plugin
 
 db = DBConnection().db
 customer_bp = Blueprint("customer_bp", __name__, url_prefix="/api/customers")
@@ -32,6 +33,7 @@ def run_customer_importer(
 
 
 @customer_bp.route("/import", methods=["POST"])
+@require_plugin("import_export_plugin")
 def import_customers_endpoint():
     """Endpoint unificado para importação em lote via upload de arquivo ou payload JSON.
 
@@ -128,6 +130,7 @@ def import_customers_endpoint():
 
 
 @customer_bp.route("/import/csv", methods=["POST"])
+@require_plugin("import_export_plugin")
 def import_csv_endpoint():
     """Endpoint dedicado para importação de clientes a partir de arquivo ou texto CSV."""
     company_id_raw = request.form.get("company_id") or request.args.get("company_id")
@@ -156,6 +159,7 @@ def import_csv_endpoint():
 
 
 @customer_bp.route("/import/json", methods=["POST"])
+@require_plugin("import_export_plugin")
 def import_json_endpoint():
     """Endpoint dedicado para importação de clientes a partir de JSON."""
     company_id_raw = request.args.get("company_id")
@@ -193,6 +197,7 @@ def import_json_endpoint():
 
 
 @customer_bp.route("/export", methods=["GET"])
+@require_plugin("import_export_plugin")
 def export_customers_endpoint():
     """Endpoint para exportação de clientes nos formatos CSV ou JSON."""
     file_format = request.args.get("format", "csv")
@@ -296,7 +301,16 @@ def create_customer():
     if not name or str(name).strip() == "":
         return jsonify({"success": False, "error": "O campo 'name' é obrigatório."}), 400
 
-    company_id = data.get("company_id")
+    company_id = (
+        data.get("company_id")
+        or request.headers.get("X-Company-Id")
+        or request.headers.get("X-Company-ID")
+    )
+    if company_id is not None:
+        try:
+            company_id = int(company_id)
+        except (ValueError, TypeError):
+            company_id = None
     if not company_id:
         first_company = Company.query.first()
         company_id = first_company.id if first_company else 1

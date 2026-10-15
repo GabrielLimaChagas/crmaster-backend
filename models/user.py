@@ -34,10 +34,15 @@ class User(db.Model):
         return self.role == UserRole.MANAGER.value
 
     def to_dict(self):
+        active_plugins = []
+        if self.company:
+            active_plugins = self.company.get_active_plugin_slugs()
         return {
             'id': self.id,
             'name': self.name,
             'role': self.role.value if hasattr(self.role, 'value') else self.role,
             'email': self.email,
-            'company_id': self.company_id
+            'company_id': self.company_id,
+            'plugins': active_plugins,
+            'active_plugins': active_plugins,
         }

@@ -5,6 +5,7 @@ from flask import Blueprint, jsonify, request, Response
 from models.product import Product
 from patterns.singleton.db_connection import DBConnection
 from patterns.template_method import ProductImporter, ProductExporter
+from utils.decorators import require_plugin
 
 db = DBConnection().db
 product_bp = Blueprint("product_bp", __name__, url_prefix="/api/products")
@@ -132,6 +133,7 @@ def delete_product(product_id: int):
 
 
 @product_bp.route("/import", methods=["POST"])
+@require_plugin("import_export_plugin")
 def import_products_endpoint():
     """Endpoint unificado para importação em lote de produtos via CSV ou JSON.
 
@@ -204,6 +206,7 @@ def import_products_endpoint():
 
 
 @product_bp.route("/export", methods=["GET"])
+@require_plugin("import_export_plugin")
 def export_products_endpoint():
     """Endpoint para exportação de produtos nos formatos CSV ou JSON."""
     file_format = request.args.get("format", "csv")

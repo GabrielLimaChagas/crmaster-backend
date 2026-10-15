@@ -32,7 +32,7 @@ def close_pipeline_sale(pipeline_id: int):
     """Fecha uma oportunidade de venda utilizando o padrão Facade (SaleCheckoutFacade).
 
     Payload opcional (JSON):
-        { "note": "Venda finalizada com sucesso" }
+        { "note": "Venda finalizada com sucesso", "company_id": 2 }
 
     Retorno:
         200: Venda fechada com sucesso {"success": True, "message": "..."}
@@ -42,10 +42,27 @@ def close_pipeline_sale(pipeline_id: int):
     payload = request.get_json(silent=True) or {}
     closing_note = payload.get("note")
 
+    # 1. Extração priorizada do company_id da requisição (payload JSON, headers ou query string)
+    req_company_id = (
+        payload.get("company_id")
+        or request.headers.get("X-Company-Id")
+        or request.headers.get("X-Company-ID")
+        or request.args.get("company_id")
+    )
+    if req_company_id is not None:
+        try:
+            req_company_id = int(req_company_id)
+        except (ValueError, TypeError):
+            req_company_id = None
+
     facade = SaleCheckoutFacade()
 
     try:
-        success = facade.close_sale(pipeline_id=pipeline_id, closing_note=closing_note)
+        success = facade.close_sale(
+            pipeline_id=pipeline_id,
+            closing_note=closing_note,
+            company_id=req_company_id,
+        )
         return jsonify({
             "success": success,
             "message": f"Venda da pipeline {pipeline_id} concluída com sucesso.",
@@ -133,10 +150,23 @@ def create_pipeline():
         # Gatilho da Fachada de Fechamento se a etapa for CLOSING
         if step_enum == PipelineStep.CLOSING:
             try:
+                req_company_id = (
+                    payload.get("company_id")
+                    or request.headers.get("X-Company-Id")
+                    or request.headers.get("X-Company-ID")
+                    or request.args.get("company_id")
+                )
+                if req_company_id is not None:
+                    try:
+                        req_company_id = int(req_company_id)
+                    except (ValueError, TypeError):
+                        req_company_id = None
+
                 facade = SaleCheckoutFacade()
                 facade.close_sale(
                     pipeline_id=new_pipeline.id,
                     closing_note=note or "Fechamento realizado pela interface",
+                    company_id=req_company_id,
                 )
             except Exception as fe:
                 print(f"[Aviso] Falha ao disparar SaleCheckoutFacade no create: {fe}")
@@ -201,10 +231,23 @@ def update_pipeline(pipeline_id: int):
         # Gatilho da Fachada de Fechamento se a etapa for ou passou a ser CLOSING
         if step_changed_to_closing or pipeline.step == PipelineStep.CLOSING:
             try:
+                req_company_id = (
+                    payload.get("company_id")
+                    or request.headers.get("X-Company-Id")
+                    or request.headers.get("X-Company-ID")
+                    or request.args.get("company_id")
+                )
+                if req_company_id is not None:
+                    try:
+                        req_company_id = int(req_company_id)
+                    except (ValueError, TypeError):
+                        req_company_id = None
+
                 facade = SaleCheckoutFacade()
                 facade.close_sale(
                     pipeline_id=pipeline.id,
                     closing_note=payload.get("note") or "Fechamento realizado pela interface",
+                    company_id=req_company_id,
                 )
             except Exception as fe:
                 print(f"[Aviso] Falha ao disparar SaleCheckoutFacade no update: {fe}")

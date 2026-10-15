@@ -31,7 +31,7 @@ class MessageNotificationFacade:
         """Dispara o e-mail via EmailService e grava o registro na tabela notifications.
 
         Args:
-            company_id: ID da empresa associada.
+            company_id: ID real da empresa associada.
             recipient_email: Endereço de e-mail do destinatário.
             title: Assunto/título da notificação.
             content: Corpo textual da mensagem.
@@ -39,6 +39,9 @@ class MessageNotificationFacade:
         Returns:
             True se o e-mail foi disparado com sucesso pelo SMTP, False caso contrário.
         """
+        if not company_id or not isinstance(company_id, int) or company_id <= 0:
+            raise ValueError(f"Identificador de empresa inválido para registro da notificação: {company_id}")
+
         # 1. Disparo de e-mail através do subsistema EmailService
         email_sent = self.email_service.send_smtp(
             recipient_email=recipient_email,
@@ -66,6 +69,9 @@ class MessageNotificationFacade:
         password: str,
     ) -> bool:
         """Monta a mensagem de boas-vindas e credenciais da nova empresa, delegando para notify_and_record."""
+        if not company_id or not isinstance(company_id, int) or company_id <= 0:
+            raise ValueError(f"Identificador de empresa inválido para notificação de onboarding: {company_id}")
+
         plugins_formatted = (
             "\n".join(f"  • {p}" for p in plugins_list)
             if plugins_list
@@ -103,6 +109,9 @@ class MessageNotificationFacade:
         total_amount: float,
     ) -> None:
         """Dispara e audita as mensagens de confirmação do cliente e comemoração do vendedor."""
+        if not company_id or not isinstance(company_id, int) or company_id <= 0:
+            raise ValueError(f"Identificador de empresa inválido para notificações de venda: {company_id}")
+
         # 1. Notificação do Cliente
         if customer and customer.email:
             customer_name = customer.name or "Cliente"
