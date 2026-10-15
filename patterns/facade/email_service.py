@@ -83,3 +83,56 @@ class EmailService:
             logger.info(f"[EMAIL ENVIADO] E-mail de celebração enviado para o vendedor: {employee_email}")
         except Exception as exc:
             logger.error(f"[EMAIL FALHA] Não foi possível enviar e-mail para o vendedor {employee_email}: {exc}")
+
+    @staticmethod
+    def send_company_welcome_email(
+        user_email: str,
+        user_name: str,
+        company_name: str,
+        plugins_list: list[str],
+        password: str,
+    ) -> bool:
+        """Envia e-mail de boas-vindas para o administrador da nova empresa com credenciais e plugins."""
+        msg = (
+            f"[NOTIFICAÇÃO ONBOARDING] Para: {user_email} | Usuário: {user_name} | "
+            f"Empresa: {company_name} | Plugins: {len(plugins_list)}"
+        )
+        logger.info(msg)
+        print(f"\n>>> {msg}\n")
+
+        plugins_formatted = (
+            "\n".join(f"  • {p}" for p in plugins_list)
+            if plugins_list
+            else "  • Nenhum plugin adicional selecionado"
+        )
+
+        subject = f"Bem-vindo ao CRMaster! Acesso da empresa {company_name}"
+        body = (
+            f"Olá {user_name},\n\n"
+            f"Seja muito bem-vindo à plataforma CRMaster!\n\n"
+            f"Sua empresa foi cadastrada com sucesso:\n"
+            f"Nome da Empresa: {company_name}\n\n"
+            f"Módulos e Plugins Liberados:\n"
+            f"{plugins_formatted}\n\n"
+            f"Credenciais de Primeiro Acesso:\n"
+            f"E-mail (Login): {user_email}\n"
+            f"Senha Temporária: {password}\n\n"
+            f"Recomendamos que você altere sua senha após o primeiro login.\n\n"
+            f"Atenciosamente,\n"
+            f"Equipe de Sucesso do Cliente CRMaster"
+        )
+
+        try:
+            gmail_service = GmailService()
+            gmail_service.send_email(
+                to_email=user_email,
+                subject=subject,
+                body=body,
+                is_html=False,
+            )
+            logger.info(f"[EMAIL ENVIADO] E-mail de boas-vindas enviado com sucesso para {user_email}")
+            return True
+        except Exception as exc:
+            logger.error(f"[EMAIL FALHA] Não foi possível enviar e-mail de boas-vindas para {user_email}: {exc}")
+            return False
+
