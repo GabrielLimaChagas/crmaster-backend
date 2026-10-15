@@ -26,12 +26,18 @@ def create_app():
     from routes.pipeline_routes import pipeline_bp
     from routes.company_routes import company_bp
     from routes.notification_routes import notification_bp
+    from routes.user_routes import user_bp
+    from routes.plugin_routes import plugin_bp
+    from routes.auth_routes import auth_bp
     app.register_blueprint(customer_bp)
     app.register_blueprint(product_bp)
     app.register_blueprint(metric_bp)
     app.register_blueprint(pipeline_bp)
     app.register_blueprint(company_bp)
     app.register_blueprint(notification_bp)
+    app.register_blueprint(user_bp)
+    app.register_blueprint(plugin_bp)
+    app.register_blueprint(auth_bp)
 
     @app.after_request
     def set_no_cache_headers(response):

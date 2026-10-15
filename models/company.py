@@ -24,9 +24,19 @@ class Company(db.Model):
     company_plugins = db.relationship('CompanyPlugin', back_populates='company', cascade='all, delete-orphan', lazy=True)
 
     def to_dict(self):
+        plugins = []
+        if self.company_plugins:
+            for cp in self.company_plugins:
+                if cp.plugin:
+                    plugins.append({
+                        'id': cp.plugin.id,
+                        'name': cp.plugin.name
+                    })
         return {
             'id': self.id,
             'name': self.name,
             'cnpj': self.cnpj,
-            'campany_id': self.campany_id
+            'campany_id': self.campany_id,
+            'plugins': plugins,
+            'plugin_ids': [p['id'] for p in plugins]
         }

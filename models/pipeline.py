@@ -40,12 +40,36 @@ class Pipeline(db.Model):
         return round(float(total), 2)
 
     def to_dict(self):
+        items = [sp.to_dict() for sp in (self.sale_products or [])]
+        customer_name = self.customer.name if self.customer else ""
+        employee_name = self.employee.name if self.employee else ""
+        step_val = self.step.value if hasattr(self.step, 'value') else str(self.step)
+        products_count = sum(sp.quantidade for sp in (self.sale_products or []))
+
         return {
             'id': self.id,
             'note': self.note,
             'date': self.date.isoformat() if self.date else None,
-            'step': self.step.value if hasattr(self.step, 'value') else self.step,
+            'step': step_val,
             'customer_id': self.customer_id,
+            'customer_name': customer_name,
+            'client': customer_name,
+            'customer': {
+                'id': self.customer.id,
+                'name': self.customer.name,
+                'email': self.customer.email,
+                'cel': self.customer.cel,
+            } if self.customer else None,
             'employee_id': self.employee_id,
-            'total': self.calculate_total()
+            'employee_name': employee_name,
+            'employee': {
+                'id': self.employee.id,
+                'name': self.employee.name,
+                'email': self.employee.email,
+            } if self.employee else None,
+            'total': self.calculate_total(),
+            'productsCount': products_count,
+            'products_count': products_count,
+            'items': items,
+            'sale_products': items,
         }

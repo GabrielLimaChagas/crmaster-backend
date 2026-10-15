@@ -3,7 +3,9 @@
 from flask import Blueprint, jsonify, request
 from models.company import Company
 from patterns.facade import CompanyOnboardingFacade
+from patterns.singleton.db_connection import DBConnection
 
+db = DBConnection().db
 company_bp = Blueprint("company_bp", __name__, url_prefix="/api/companies")
 
 
@@ -74,3 +76,55 @@ def list_companies():
         return jsonify([c.to_dict() for c in companies]), 200
     except Exception as exc:
         return jsonify({"success": False, "error": str(exc)}), 500
+
+
+@company_bp.route("/<int:company_id>", methods=["GET"])
+def get_company(company_id: int):
+    """Retorna os dados de uma empresa específica por ID."""
+    company = Company.query.get(company_id)
+    if not company:
+        return jsonify({"success": False, "error": "Empresa não encontrada."}), 404
+    return jsonify(company.to_dict()), 200
+
+
+@company_bp.route("/<int:company_id>", methods=["PUT"])
+def update_company(company_id: int):
+    """Atualiza as informações cadastrais da empresa."""
+    company = Company.query.get(company_id)
+    if not company:
+        return jsonify({"success": False, "error": "Empresa não encontrada."}), 404
+
+    payload = request.get_json(silent=True) or {}
+    if "name" in payload and str(payload["name"]).strip():
+        company.name = str(payload["name"]).strip()
+    if "company_name" in payload and str(payload["company_name"]).strip():
+        company.name = str(payload["company_name"]).strip()
+    if "cnpj" in payload and str(payload["cnpj"]).strip():
+        company.cnpj = str(payload["cnpj"]).strip()
+
+    try:
+        db.session.commit()
+        return jsonify({
+            "success": True,
+            "message": "Empresa atualizada com sucesso.",
+            "company": company.to_dict()
+        }), 200
+    except Exception as exc:
+        db.session.rollback()
+        return jsonify({"success": False, "error": str(exc)}), 500
+
+
+@company_bp.route("/<int:company_id>/plugins", methods=["GET"])
+def get_company_plugins(company_id: int):
+    """Retorna a lista de plugins ativos da empresa."""
+    company = Company.query.get(company_id)
+    if not company:
+        return jsonify({"success": False, "error": "Empresa não encontrada."}), 404
+
+    plugins = []
+    if company.company_plugins:
+        for cp in company.company_plugins:
+            if cp.plugin:
+                plugins.append(cp.plugin.to_dict())
+
+    return jsonify(plugins), 200
