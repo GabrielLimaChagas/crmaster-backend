@@ -22,8 +22,10 @@ def create_app():
     
     from routes.customer_routes import customer_bp
     from routes.product_routes import product_bp
+    from routes.metric_routes import metric_bp
     app.register_blueprint(customer_bp)
     app.register_blueprint(product_bp)
+    app.register_blueprint(metric_bp)
 
     @app.after_request
     def set_no_cache_headers(response):

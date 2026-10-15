@@ -1,6 +1,6 @@
-"""Pacote contendo o padrão de projeto comportamental Template Method para importação e exportação de dados.
+"""Pacote com implementações do padrão comportamental Template Method.
 
-Exporta as classes abstratas e concretas para Clientes e Produtos.
+Exporta importadores, exportadores e calculadoras analíticas de métricas e KPIs.
 """
 
 from .base_importer import BaseImporter
@@ -9,6 +9,10 @@ from .product_importer import ProductImporter
 from .base_exporter import BaseExporter
 from .customer_exporter import CustomerExporter
 from .product_exporter import ProductExporter
+from .base_metric_calculator import BaseMetricCalculator
+from .ticket_calculator import AverageTicketCalculator
+from .win_rate_calculator import WinRateCalculator
+from .ltv_calculator import LTVCalculator
 
 __all__ = [
     "BaseImporter",
@@ -17,4 +21,8 @@ __all__ = [
     "BaseExporter",
     "CustomerExporter",
     "ProductExporter",
+    "BaseMetricCalculator",
+    "AverageTicketCalculator",
+    "WinRateCalculator",
+    "LTVCalculator",
 ]
